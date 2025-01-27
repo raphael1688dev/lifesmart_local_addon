@@ -25,10 +25,7 @@ import hashlib
 import struct
 import logging
 from asyncio import Lock
-from queue import Queue
-from cachetools import TTLCache
-from cachetools.func import ttl_cache
-from cachetools.keys import hashkey
+
 from typing import Any, Dict
 from .const import API_PORT, REMARK, CMD_SET
 
@@ -42,40 +39,6 @@ class LifeSmartAPI:
         self.sequence = 1
         self._socket = None
         self.timeout = timeout
-        self._connection_pool = Queue(maxsize=5)
-        self._pool_lock = Lock()
-        self._init_connection_pool()
-          # Add caches
-        self._device_cache = TTLCache(maxsize=50, ttl=300)  # 5 min cache for devices
-        self._state_cache = TTLCache(maxsize=100, ttl=2)    # 2 sec cache for states
-
-
-    def _init_connection_pool(self):
-        """Initialize the connection pool with sockets."""
-        for _ in range(5):
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(self.timeout)
-            self._connection_pool.put(sock)
-
-    async def _get_connection(self):
-        """Get a connection from the pool."""
-        async with self._pool_lock:
-            try:
-                return self._connection_pool.get_nowait()
-            except:
-                # If pool is empty, create new connection
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.settimeout(self.timeout)
-                return sock
-
-    async def _return_connection(self, sock):
-        """Return a connection to the pool."""
-        async with self._pool_lock:
-            try:
-                self._connection_pool.put_nowait(sock)
-            except:
-                # If pool is full, close the connection
-                sock.close()
 
     def _create_signature(self, obj: str, args: Dict[str, Any], ts: int) -> str:
         sorted_args = sorted(args.items())
@@ -108,23 +71,17 @@ class LifeSmartAPI:
                            len(body_json))
 
         return header + body_json
-
     async def get_devices(self) -> Dict[str, Any]:
         """Get all devices from the LifeSmart system."""
-        # Use discover_devices directly instead of caching the coroutine
         devices = await self.discover_devices()
         if isinstance(devices, dict) and "msg" in devices:
-            return {device["me"]: device for device in devices["msg"]}
+            device_dict = {device["me"]: device for device in devices["msg"]}
+            return device_dict
         return {}
-
-
-    async def set_device_state(self, device_id: str, state: Dict[str, Any] , time_out: float = 0.2) -> Dict[str, Any]:
+    def set_device_state(self, device_id: str, state: Dict[str, Any] , time_out: float = 0.2) -> Dict[str, Any]:
         """Set device state."""
         _LOGGER.debug("Step 5: API preparing device command")
-        cache_key = hashkey(device_id, state['idx'], state['type'], state['val'])
-    
-        if cache_key in self._state_cache:
-            return self._state_cache[cache_key]
+
         args = {
             "me": device_id,
             "idx": state["idx"],
@@ -135,44 +92,49 @@ class LifeSmartAPI:
         message = self.create_message("ep", args, CMD_SET)
         _LOGGER.debug("Step 6: Sending UDP message to device")
 
-        sock = await self._get_connection()
-        try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(time_out)
             sock.sendto(message, (self.host, API_PORT))
+            
             data, _ = sock.recvfrom(65535)
             response = json.loads(data[10:].decode('utf-8'))
             _LOGGER.debug("Step 7: Received device response: %s", response)
+
             return response
-        finally:
-            await self._return_connection(sock)
+
 
     async def send_command(self, obj: str, args: Dict[str, Any], pkg_type: int , time_out: float = 10.0) -> Dict[str, Any]:
         message = self.create_message(obj, args, pkg_type)
         _LOGGER.debug("Sending command: obj=%s, args=%s, pkg_type=%s", obj, args, pkg_type)
 
-        sock = await self._get_connection()
-        try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(time_out)
             sock.sendto(message, (self.host, API_PORT))
+            
             data, _ = sock.recvfrom(65535)
             response = json.loads(data[10:].decode('utf-8'))
+            
             return response
-        finally:
-            await self._return_connection(sock)
 
     async def discover_devices(self):
         args = {"me": ""}
         return await self.send_command("eps", args, 1)
-
     async def discover_devices_by_id(self, device_id: str, time_out: float = 0.2):
         args = {
             "me": device_id,
+     
         }
+        
         return await self.send_command("ep", args, 1, time_out)
 
-    @ttl_cache(maxsize=100, ttl=2)
     async def get_state_updates(self):
-        sock = await self._get_connection()
+        if not self._socket:
+            self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self._socket.bind((self.host, API_PORT))
+            self._socket.settimeout(None)
+
         try:
-            data, _ = sock.recvfrom(65535)
+            data, _ = self._socket.recvfrom(65535)
             if len(data) > 10:
                 message = json.loads(data[10:].decode('utf-8'))
                 _LOGGER.debug("Received UDP message: %s", message)
@@ -186,13 +148,13 @@ class LifeSmartAPI:
                             'val': msg.get('data', {}).get('v', msg.get('val')),
                             'type': msg.get('type')
                         }
+                    
         except Exception as e:
             _LOGGER.error("Error receiving state update: %s", str(e))
-        finally:
-            await self._return_connection(sock)
+            if self._socket:
+                self._socket.close()
+                self._socket = None
         return None
-
-    @ttl_cache(maxsize=50, ttl=300)
     async def get_remote_list(self) -> Dict[str, Any]:
         """Retrieve IR remote list for devices."""
         args = {
@@ -212,7 +174,6 @@ class LifeSmartAPI:
             return all_keys
         return response
 
-    @ttl_cache(maxsize=50, ttl=300)
     async def get_remote_keys(self, remote_id: str) -> Dict[str, Any]:
         """Retrieve IR remote keys for a specific device."""
         args = {
