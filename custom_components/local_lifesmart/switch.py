@@ -8,6 +8,9 @@ The `async_setup_entry` function is responsible for setting up the LifeSmart swi
 """Platform for LifeSmart switch integration."""
 import logging
 from asyncio import Lock
+import asyncio
+import time
+
 from typing import Any, Dict, List, Optional
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
@@ -117,6 +120,9 @@ class LifeSmartSwitch(SwitchEntity):
         hub_id = device.get('agt', '')
         device_id = device['me']
         self.entity_id = f"{DOMAIN}.{generate_entity_id(device_type, hub_id, device_id, idx)}"
+        self._last_action_time = 0
+        self._min_time_between_actions = 1  # 500ms minimum between actions
+    
         try:
             initial_state = device.get(DATA, {}).get(idx, {}).get(VAL, 0)
             self._state = bool(initial_state)
@@ -207,54 +213,60 @@ class LifeSmartSwitch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
-        async with self._lock: 
-            _LOGGER.debug("Step 1: Initiating switch turn on for %s", self._attr_unique_id)
-            _LOGGER.debug("Step 1 Data: device=%s, idx=%s", self._device[ME], self._idx)
-            try:
-                state = {
-                    "idx": self._idx,
-                    "type": TYPE_ON,
-                    "val": 1
-                }
-                await self.coordinator.async_set_device_state(
-                    self._device[ME],
-                    state
-                )
-                self._state = True
-                self.async_write_ha_state()
-                _LOGGER.debug("Step 2: Sending state change request to coordinator: %s", state)
-            except Exception as ex:
-                _LOGGER.error(f"Failed to turn on {self._attr_name}: {str(ex)}")
-                _LOGGER.debug("Turn on error details", exc_info=True)
-                self._available = False
-                raise
-
+        if self._state:
+            return
+        
+        _LOGGER.debug("Turning on %s", self._attr_unique_id)
+        current_time = time.time()
+        if current_time - self._last_action_time < self._min_time_between_actions:
+            _LOGGER.debug("Ignoring rapid switch ON action for %s", self._attr_unique_id)
+            return
+        self._last_action_time = current_time
+        try:
+            state = {
+                "idx": self._idx,
+                "type": TYPE_ON,
+                "val": 1
+            }
+            await self.coordinator.async_set_device_state(
+                self._device[ME],
+                state
+            )
+            self._state = True
+            self.async_write_ha_state()
+                
+        except Exception as ex:
+            _LOGGER.error(f"Failed to turn on {self._attr_name}: {str(ex)}")
+            self._state = False
+            self.async_write_ha_state()
+            self._available = False
+            raise
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
-        _LOGGER.debug("Turning off %s", self._attr_unique_id)
-        async with self._lock:
-            try:
-                state = {
-                    "idx": self._idx,
-                    "type": TYPE_OFF,
-                    "val": 0
-                }
-                await self.coordinator.async_set_device_state(
-                    self._device[ME],
-                    state
-                )
-                self._state = False
-                self.async_write_ha_state()
-                _LOGGER.debug("Successfully turned off %s", self._attr_unique_id)
-            except Exception as ex:
-                _LOGGER.error(f"Failed to turn off {self._attr_name}: {str(ex)}")
-                _LOGGER.debug("Turn off error details", exc_info=True)
-                self._available = False
-                raise
 
-    async def async_update(self) -> None:
-        """Update the entity."""
-        _LOGGER.debug("Updating %s", self._attr_unique_id)
-        async with self._lock:
-             await self.coordinator.async_request_refresh()
+        _LOGGER.debug("Turning off %s", self._attr_unique_id)
+        current_time = time.time()
+        if current_time - self._last_action_time < self._min_time_between_actions:
+            _LOGGER.debug("Ignoring rapid switch OFF action for %s", self._attr_unique_id)
+            return
+        self._last_action_time = current_time
+        try:
+            state = {
+                "idx": self._idx,
+                "type": TYPE_OFF,
+                "val": 0
+            }
+            await self.coordinator.async_set_device_state(
+                self._device[ME],
+                state
+            )
+            self._state = False
+            self.async_write_ha_state()
+                
+        except Exception as ex:
+            _LOGGER.error(f"Failed to turn off {self._attr_name}: {str(ex)}")
+            self._state = True
+            self.async_write_ha_state()
+            self._available = False
+            raise

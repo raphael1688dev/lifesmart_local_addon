@@ -112,33 +112,21 @@ class LifeSmartCoordinator(DataUpdateCoordinator):
         """Get device info by ID."""
         return self.device_info.get(device_id, {})
 
-    async def async_set_device_state(self, device_id: str, state: Dict[str, Any] , time_out: float = 0.5) -> None:
-        """Set device state with retry logic."""
-    
-        max_retries = 3
-        retry_delay = 1  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                _LOGGER.debug(f"Setting device state attempt {attempt + 1}/{max_retries}")
-                result = await asyncio.wait_for(
-                    self.hass.async_add_executor_job(
-                        self.api.set_device_state, device_id, state , time_out
-                    ),
-                    timeout= time_out  
-                )
-                _LOGGER.debug("Device state set successfully: %s", result)
-                await self.async_refresh()
-                return
-                
-            except asyncio.TimeoutError:
-                if attempt == max_retries - 1:
-                    _LOGGER.error("Final attempt failed - device may be unreachable")
-                    raise
-                _LOGGER.warning(f"Timeout occurred, retrying in {retry_delay} seconds...")
-                await asyncio.sleep(retry_delay)
-                time_out=2
-                
-            except Exception as err:
-                _LOGGER.error("Error setting device state: %s", err)
-                raise
+    async def async_set_device_state(self, device_id: str, state: Dict[str, Any], time_out: float = 2.0) -> None:
+        """Set device state with improved error handling."""
+        if not self.available:
+            return
+        try:
+            result = await self.hass.async_add_executor_job(
+                self.api.set_device_state, device_id, state, time_out
+            )
+            _LOGGER.debug("Device state set successfully: %s", result)
+            await self.async_refresh()
+            return
+        except asyncio.TimeoutError:
+            _LOGGER.error("Timeout occurred while setting device state")
+            raise UpdateFailed("Timeout occurred while setting device state")
+
+        except Exception as err:
+            _LOGGER.error("Error setting device state: %s", err)
+            raise
