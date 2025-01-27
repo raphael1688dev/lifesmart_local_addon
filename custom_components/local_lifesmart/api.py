@@ -102,19 +102,24 @@ class LifeSmartAPI:
         
         # Return a default response instead of raising timeout
         return {"code": 0, "msg": "command sent"}
-    async def send_command(self, obj: str, args: Dict[str, Any], pkg_type: int) -> Dict[str, Any]:
-        for attempt in range(3):  # Try 3 times
-            try:
-                message = self.create_message(obj, args, pkg_type)
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                    sock.settimeout(5)  # Reduce timeout to 5 seconds
-                    sock.sendto(message, (self.host, API_PORT))
-                    data, _ = sock.recvfrom(65535)
-                    return json.loads(data[10:].decode('utf-8'))
-            except Exception as e:
-                if attempt == 2:
-                    raise
-                await asyncio.sleep(0.5)  # Short delay between retries
+    async def send_command(self, obj: str, args: Dict[str, Any], pkg_type: int, time_out: float = 5.0) -> Dict[str, Any]:
+        if obj == "spotremote":
+            time_out = 0.3
+        try:
+            message = self.create_message(obj, args, pkg_type)
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(time_out)  # Reduce timeout to 5 seconds
+                sock.sendto(message, (self.host, API_PORT))
+
+                data, _ = sock.recvfrom(65535)
+                return json.loads(data[10:].decode('utf-8'))
+        except Exception as e:
+            if obj == "spotremote":
+                
+                return {"code": 0, "msg": "command sent"}    
+            _LOGGER.error(f"Error sending command: {str(e)}")
+            return {"code": 0, "msg": "command sent"}    
+
 
     async def discover_devices(self):
         args = {"me": ""}

@@ -85,9 +85,11 @@ class LifeSmartCoordinator(DataUpdateCoordinator):
                     "msg": []
                 }
                 
-                for device_id, device_data in devices.items():
-                    formatted_data["msg"].append(device_data)
-                    
+                if isinstance(devices, dict):
+                    for device_id, device_data in devices.items():
+                        if isinstance(device_data, dict):
+                            formatted_data["msg"].append(device_data)
+                            
                 return formatted_data
 
             except asyncio.TimeoutError:

@@ -1,6 +1,7 @@
 """LifeSmart Remote Platform"""
 import logging
 from typing import Any, Dict, List
+import time
 
 from homeassistant.components import remote
 from homeassistant.config_entries import ConfigEntry
@@ -109,42 +110,55 @@ class LifeSmartRemote(remote.RemoteEntity):
             "agt": self._device.get("agt"),
             "me": self._device.get("me"),
             "devtype": self._device.get("devtype"),
-
-
-
             "remotes": self._remote_details,
             "all_commands": list(self._all_keys.keys())
         }
 
         return attributes
 
-    # async def async_send_command(self, command: List[str], **kwargs: Any) -> None:
-    #     """Send commands to a device."""
-    #     for cmd in command:
-
-    #         if cmd in self._all_keys:
-    #             remote_id = self._all_keys[cmd]
-    #             try:
-
-    #                 await self._api.send_remote_key(remote_id, cmd)
-    #             except Exception as ex:
-
-    #                 _LOGGER.error(f"Error sending command {cmd} to remote {remote_id}: {str(ex)}")
     async def async_send_command(self, command: List[str], **kwargs: Any) -> None:
-        """Send commands remote_id to a device."""
+        """Send commands remote_id to a device."""      
         for cmd in command:
-            # New format: remote_id::command
+
+            
             if "::" in cmd:
                 remote_id, key = cmd.split("::")
                 if remote_id in self._remote_details and key in self._remote_details[remote_id]["keys"]:
                     try:
+
                         await self._api.send_remote_key(remote_id, key)
+
                     except Exception as ex:
-                        _LOGGER.error(f"Error sending command {key} to remote {remote_id}: {str(ex)}")
-            # Maintain backwards compatibility with existing command format
-            elif cmd in self._all_keys:
-                remote_id = self._all_keys[cmd]
-                try:
-                    await self._api.send_remote_key(remote_id, cmd)
-                except Exception as ex:
-                    _LOGGER.error(f"Error sending command {cmd} to remote {remote_id}: {str(ex)}")
+
+                        _LOGGER.error(f"Unexpected error sending command {key} to remote {remote_id}: {str(ex)}")
+            else:
+                if cmd in self._all_keys:
+                    remote_id = self._all_keys[cmd]
+                    try:
+                        await self._api.send_remote_key(remote_id, cmd)
+                    except Exception as ex:
+
+                        _LOGGER.error(f"Error sending command {cmd} to remote {remote_id}: {str(ex)}")
+
+        
+
+        
+# async def async_send_command(self, command: List[str], **kwargs: Any) -> None:
+ #     """Send commands remote_id to a device."""
+
+ #     for cmd in command:
+ #         # New format: remote_id::command
+ #         if "::" in cmd:
+ #             remote_id, key = cmd.split("::")
+ #             if remote_id in self._remote_details and key in self._remote_details[remote_id]["keys"]:
+ #                 try:
+ #                     await self._api.send_remote_key(remote_id, key)
+ #                 except Exception as ex:
+ #                     _LOGGER.error(f"Error sending command {key} to remote {remote_id}: {str(ex)}")
+ #         # Maintain backwards compatibility with existing command format
+ #         elif cmd in self._all_keys:
+ #             remote_id = self._all_keys[cmd]
+ #             try:
+ #                 await self._api.send_remote_key(remote_id, cmd)
+ #             except Exception as ex:
+ #                 _LOGGER.error(f"Error sending command {cmd} to remote {remote_id}: {str(ex)}"
