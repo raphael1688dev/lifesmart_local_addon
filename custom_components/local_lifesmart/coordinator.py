@@ -70,33 +70,57 @@ class LifeSmartCoordinator(DataUpdateCoordinator):
                     
                 except Exception as err:
                     raise UpdateFailed(f"Error communicating with API for device {device_id}: {err}")
-
-    async def _async_update_data(self , timout: float=1.0) -> Dict[str, Any]:
-        """Fetch data from API with retry logic."""
-       
-        for attempt in range(3):  # Try 3 times
+    
+    async def _async_update_data(self, timeout: float = 1.0) -> Dict[str, Any]:
+        """Fetch all devices data in an efficient batch operation."""
+        for attempt in range(3):
             try:
+                # Create a new coroutine for each attempt
+                get_devices_coro = self.api.get_devices()
                 devices = await asyncio.wait_for(
-                    self.api.get_devices(),
-                    timeout=timout 
+                    get_devices_coro,
+                    timeout=timeout
                 )
                 
-                formatted_data = {
-                    "msg": []
+                # Process all device data at once
+                return {
+                    "msg": list(devices.values())
                 }
-                
-                for device_id, device_data in devices.items():
-                    formatted_data["msg"].append(device_data)
-                    
-                return formatted_data
 
             except asyncio.TimeoutError:
-                if attempt == 2:  # Last attempt
+                if attempt == 2:
                     raise UpdateFailed("Error communicating with API: timed out")
-                await asyncio.sleep(1)  # Wait before retry
+                await asyncio.sleep(1)
                 
             except Exception as err:
                 raise UpdateFailed(f"Error communicating with API: {err}")
+
+    # async def _async_update_data(self , timout: float=1.0) -> Dict[str, Any]:
+    #     """Fetch data from API with retry logic."""
+       
+    #     for attempt in range(3):  # Try 3 times
+    #         try:
+    #             devices = await asyncio.wait_for(
+    #                 self.api.get_devices(),
+    #                 timeout=timout 
+    #             )
+                
+    #             formatted_data = {
+    #                 "msg": []
+    #             }
+                
+    #             for device_id, device_data in devices.items():
+    #                 formatted_data["msg"].append(device_data)
+                    
+    #             return formatted_data
+
+    #         except asyncio.TimeoutError:
+    #             if attempt == 2:  # Last attempt
+    #                 raise UpdateFailed("Error communicating with API: timed out")
+    #             await asyncio.sleep(1)  # Wait before retry
+                
+    #         except Exception as err:
+    #             raise UpdateFailed(f"Error communicating with API: {err}")
 
 
             
@@ -121,12 +145,7 @@ class LifeSmartCoordinator(DataUpdateCoordinator):
         for attempt in range(max_retries):
             try:
                 _LOGGER.debug(f"Setting device state attempt {attempt + 1}/{max_retries}")
-                result = await asyncio.wait_for(
-                    self.hass.async_add_executor_job(
-                        self.api.set_device_state, device_id, state , time_out
-                    ),
-                    timeout= time_out  
-                )
+                result = await self.api.set_device_state(device_id, state, time_out)
                 _LOGGER.debug("Device state set successfully: %s", result)
                 await self.async_refresh()
                 return
