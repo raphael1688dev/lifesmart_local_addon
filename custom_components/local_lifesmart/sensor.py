@@ -27,10 +27,19 @@ async def async_setup_entry(
 ) -> None:
     _LOGGER.debug("Setting up LifeSmart sensors")
     
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]['coordinator']
-    await coordinator.async_config_entry_first_refresh()
-
-    devices_data = await coordinator._async_update_data()
+    api = hass.data[DOMAIN][config_entry.entry_id].api
+    try:
+        devices_data: Dict[str, Any] = await api.discover_devices()
+    except aiohttp.ClientError as e:
+        _LOGGER.error(f"Network error during device discovery: {str(e)}")
+        return
+    except asyncio.TimeoutError:
+        _LOGGER.error("Timeout while discovering devices")
+        return
+    except Exception as e:
+        _LOGGER.error(f"Unexpected error during device discovery: {str(e)}")
+        return
+    
     sensors: List[SensorEntity] = []
     if isinstance(devices_data, dict) and "msg" in devices_data:
         for device in devices_data["msg"]:
@@ -40,7 +49,7 @@ async def async_setup_entry(
                         _LOGGER.debug(f"Found temperature sensor in {device['name']}")
                         sensors.append(
                             LifeSmartTemperatureSensor(
-                                coordinator=coordinator,
+                                api=api,
                                 device=device,
                                 idx="T"
                             )
@@ -49,7 +58,7 @@ async def async_setup_entry(
                     _LOGGER.debug(f"Found battery sensor in {device['name']}")
                     sensors.append(
                         LifeSmartBatterySensor(
-                            coordinator=coordinator,
+                            api=api,
                             device=device,
                             idx="P8"
                         )
@@ -65,17 +74,18 @@ async def async_setup_entry(
     async_add_entities(sensors)
 
 class LifeSmartBaseSensor(SensorEntity):
-    _coordinator: Any
+    _api: Any
     _device: Dict[str, Any]
     _idx: Optional[str]
     _remove_tracker: Optional[callable]
     _attr_device_info: DeviceInfo
     
-    def __init__(self, coordinator: Any, device: Dict[str, Any], idx: Optional[str] = None) -> None:
-        self._coordinator = coordinator
+    def __init__(self, api: Any, device: Dict[str, Any], idx: Optional[str] = None) -> None:
+        self._api = api
         self._device = device
         self._idx = idx
         self._remove_tracker = None
+
 
         try:
             self._attr_device_info = DeviceInfo(
@@ -141,8 +151,8 @@ class LifeSmartTemperatureSensor(LifeSmartBaseSensor):
     _attr_native_value: Optional[float]
     _attr_native_unit_of_measurement: str
     
-    def __init__(self, coordinator: Any, device: Dict[str, Any], idx: str) -> None:
-        super().__init__(coordinator, device, idx)
+    def __init__(self, api: Any, device: Dict[str, Any], idx: str) -> None:
+        super().__init__(api, device, idx)
         try:
             self._attr_name = f"{device.get('name', 'Temperature Sensor')}"
             self._attr_unique_id = f"lifesmart_temp_{device['me']}"
@@ -171,7 +181,7 @@ class LifeSmartTemperatureSensor(LifeSmartBaseSensor):
         
         try:
             response: Dict[str, Any] = await self._retry_with_backoff(
-                self._coordinator.api.send_command,
+                self._api.send_command,
                 "ep",
                 args,
                 CMD_GET
@@ -204,8 +214,8 @@ class LifeSmartBatterySensor(LifeSmartBaseSensor):
     _attr_native_value: Optional[int]
     _attr_native_unit_of_measurement: str
     
-    def __init__(self, coordinator: Any, device: Dict[str, Any], idx: str) -> None:
-        super().__init__(coordinator, device, idx)
+    def __init__(self, api: Any, device: Dict[str, Any] , idx: str) -> None:
+        super().__init__(api, device, idx)
         try:
             self._attr_name = f"{device.get('name', 'MINS Curtain')} Battery"
             self._attr_unique_id = f"lifesmart_battery_{device['me']}"
@@ -229,7 +239,7 @@ class LifeSmartBatterySensor(LifeSmartBaseSensor):
         }
         try:
             response: Dict[str, Any] = await self._retry_with_backoff(
-                self._coordinator.api.send_command,
+                self._api.send_command,
                 "ep",
                 args,
                 CMD_GET

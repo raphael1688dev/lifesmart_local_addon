@@ -1,22 +1,3 @@
-"""Provides an implementation of the LifeSmart API.
-
-This class `LifeSmartAPI` is used to interact with the LifeSmart API. It handles the creation of API requests, including generating the necessary signature, and provides a high-level interface for making API calls.
-
-The `LifeSmartAPI` class has the following methods:
-
-- `_create_signature(self, obj: str, args: Dict[str, Any], ts: int) -> str`: Creates the signature for an API request.
-- `create_message(self, obj: str, args: Dict[str, Any], pkg_type: int) -> bytes`: Creates the message payload for an API request.
-- `send_command(self, obj: str, args: Dict[str, Any], pkg_type: int) -> Dict[str, Any]`: Sends an API command and returns the response.
-- `discover_devices(self)`: Discovers devices connected to the LifeSmart API.
-- `get_state_updates(self)`: Receives state updates from the LifeSmart API.
-- `get_remote_list(self) -> Dict[str, Any]`: Retrieves the list of IR remote controls.
-- `get_remote_keys(self, remote_id: str) -> Dict[str, Any]`: Retrieves the keys for a specific IR remote control.
-- `send_remote_key(self, remote_id: str, key: str) -> Dict[str, Any]`: Sends a command to an IR remote control.
-"""
-"""Provides an implementation of the LifeSmart API.
-
-This module contains the `LifeSmartAPI` class, which is used to interact with the LifeSmart API. It handles the creation of API requests, including generating the necessary signature, and provides a high-level interface for making API calls.
-"""
 """LifeSmart API implementation."""
 import socket
 import json
@@ -24,15 +5,13 @@ import time
 import hashlib
 import struct
 import logging
-from asyncio import Lock
-import asyncio
 from typing import Any, Dict
-from .const import API_PORT, REMARK, CMD_SET
+from .const import API_PORT, REMARK, CMD_REPORT
 
 _LOGGER = logging.getLogger(__name__)
 
 class LifeSmartAPI:
-    def __init__(self, host: str, model: str, token: str , timeout: int = 10):
+    def __init__(self, host: str, model: str, token: str , timeout: int = 5):
         self.host = host
         self.model = model
         self.token = token
@@ -71,72 +50,28 @@ class LifeSmartAPI:
                            len(body_json))
 
         return header + body_json
-    async def get_devices(self) -> Dict[str, Any]:
-        """Get all devices from the LifeSmart system."""
-        devices = await self.discover_devices()
-        if isinstance(devices, dict) and "msg" in devices:
-            device_dict = {device["me"]: device for device in devices["msg"]}
-            return device_dict
-        return {}
-    def set_device_state(self, device_id: str, state: Dict[str, Any], time_out: float = 2.0) -> Dict[str, Any]:
-        """Set device state with reliable UDP handling."""
-        args = {
-            "me": device_id,
-            "idx": state["idx"],
-            "type": state["type"],
-            "val": state["val"]
-        }
-        message = self.create_message("ep", args, CMD_SET)
+
+    async def send_command(self, obj: str, args: Dict[str, Any], pkg_type: int,timeout: float = 5) -> Dict[str, Any]:
+        message = self.create_message(obj, args, pkg_type)
         
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.settimeout(time_out)
-            # Send multiple times to ensure delivery
-            for _ in range(1):
-                sock.sendto(message, (self.host, API_PORT))
-                try:
-                    data, _ = sock.recvfrom(65535)
-                    response = json.loads(data[10:].decode('utf-8'))
-                    return response
-                except socket.timeout:
-                    continue
-        
-        # Return a default response instead of raising timeout
-        return {"code": 0, "msg": "command sent"}
-    async def send_command(self, obj: str, args: Dict[str, Any], pkg_type: int, time_out: float = 5.0) -> Dict[str, Any]:
-        if obj == "spotremote":
-            time_out = 0.3
-        try:
-            message = self.create_message(obj, args, pkg_type)
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.settimeout(time_out)  # Reduce timeout to 5 seconds
-                sock.sendto(message, (self.host, API_PORT))
-
-                data, _ = sock.recvfrom(65535)
-                return json.loads(data[10:].decode('utf-8'))
-        except Exception as e:
-            if obj == "spotremote":
-                
-                return {"code": 0, "msg": "command sent"}    
-            _LOGGER.error(f"Error sending command: {str(e)}")
-            return {"code": 0, "msg": "command sent"}    
-
+            sock.settimeout(timeout)
+            sock.sendto(message, (self.host, API_PORT))
+            
+            data, _ = sock.recvfrom(65535)
+            response = json.loads(data[10:].decode('utf-8'))
+            
+            return response
 
     async def discover_devices(self):
-        args = {"me": ""}
+        args = {"me": "2d02"}
         return await self.send_command("eps", args, 1)
-    async def discover_devices_by_id(self, device_id: str, time_out: float = 1.0):
-        args = {
-            "me": device_id,
-     
-        }
-        
-        return await self.send_command("ep", args, 1, time_out)
 
     async def get_state_updates(self):
         if not self._socket:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self._socket.bind((self.host, API_PORT))
-            self._socket.settimeout(5)
+            self._socket.bind(('0.0.0.0', API_PORT))
+            self._socket.settimeout(None)
 
         try:
             data, _ = self._socket.recvfrom(65535)

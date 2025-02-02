@@ -1,8 +1,8 @@
 {
     "domain": "lifesmart",
     "name": "LifeSmart LocalAPI",
-    "documentation": "https://github.com/ALITECHLAB/local_lifesmart",
-    "codeowners": ["@ALITECHLAB"],
+    "documentation": "https://github.com/yourusername/local_lifesmart",
+    "codeowners": ["@yourusername"],
     "config_flow": true,
     "options": true,
     "dependencies": [],

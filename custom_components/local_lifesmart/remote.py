@@ -23,8 +23,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up LifeSmart Remote devices."""
     _LOGGER.info("Setting up LifeSmart remotes")
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]['coordinator']
-    api = coordinator.api
+    api = hass.data[DOMAIN][config_entry.entry_id].api
     devices_data = await api.discover_devices()
     
     remotes: List[LifeSmartRemote] = []
@@ -68,7 +67,7 @@ class LifeSmartRemote(remote.RemoteEntity):
         self._device = device
 
         self._remote_data_list = remote_data_list
-        self._attr_name = name
+        self._attr_name = f"{name}_{device['me']}"
         self._available = True
 
 

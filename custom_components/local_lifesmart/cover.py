@@ -1,10 +1,3 @@
-"""
-Provides a platform for integrating LifeSmart cover devices with Home Assistant.
-
-This module sets up the cover platform for LifeSmart devices, discovering and adding
-cover entities to Home Assistant. It defines the LifeSmartCover class, which represents
-a single LifeSmart cover device and handles the open, close, and stop actions for the cover.
-"""
 """Platform for LifeSmart cover integration."""
 import logging
 from typing import Any, Dict, Optional, List
@@ -27,12 +20,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     _LOGGER.debug("Setting up LifeSmart cover platform")
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]['coordinator']
-    await coordinator.async_config_entry_first_refresh()
-
-    devices_data = await coordinator._async_update_data()
+    api = hass.data[DOMAIN][config_entry.entry_id].api
+    devices_data = await api.discover_devices()
     
-    covers: List[CoverEntity] = []
+    covers = []
     if isinstance(devices_data, dict) and "msg" in devices_data:
         _LOGGER.debug("Found %s devices in response", len(devices_data["msg"]))
         for device in devices_data["msg"]:
@@ -40,7 +31,7 @@ async def async_setup_entry(
                 _LOGGER.debug("Adding cover device: %s", device.get('name', 'MINS Curtain'))
                 covers.append(
                     LifeSmartCover(
-                        coordinator=coordinator,
+                        api=api,
                         device=device,
                         idx=device.get('idx', 0)
                     )
@@ -49,11 +40,10 @@ async def async_setup_entry(
     _LOGGER.debug("Adding %s cover entities", len(covers))
     async_add_entities(covers)
 
-
 class LifeSmartCover(CoverEntity):
     """Representation of a LifeSmart cover."""
-    def __init__(self, coordinator, device, idx: Optional[str] = None):
-        self._api = coordinator.api
+    def __init__(self, api, device, idx: Optional[str] = None):
+        self._api = api
         self._device = device
         self._attr_name = device.get('name', 'MINS Curtain')
         self._attr_unique_id = f"lifesmart_cover_{device['me']}"

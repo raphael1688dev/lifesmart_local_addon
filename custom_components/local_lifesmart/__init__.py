@@ -1,7 +1,3 @@
-"""The LifeSmart Local integration.
-
-This module provides the core functionality for the LifeSmart Local integration in Home Assistant. It handles the setup and configuration of the integration, as well as managing the connection to the LifeSmart API.
-"""
 """The LifeSmart Local integration."""
 import asyncio
 import logging
@@ -14,7 +10,6 @@ from .api import LifeSmartAPI
 from requests.exceptions import RequestException
 from aiohttp.client_exceptions import ClientError
 from json.decoder import JSONDecodeError
-from .coordinator import LifeSmartCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -105,37 +100,37 @@ def _validate_config(entry: ConfigEntry) -> bool:
             raise LifeSmartConfigError(f"Configuration field {field} must be a string")
     return True
 
-async def _setup_platform(hass: HomeAssistant, entry: ConfigEntry, platforms: List[str]) -> bool:
-    """Set up platforms for LifeSmart integration."""
+async def _setup_platform(hass: HomeAssistant, entry: ConfigEntry, platform: str) -> bool:
+    """Set up a single platform for LifeSmart integration."""
     max_retries = 3
     retry_delay = 2
     
     for attempt in range(max_retries):
         try:
-            _LOGGER.debug("Setting up platforms (attempt %d/%d)", 
-                          attempt + 1, max_retries)
-            await hass.config_entries.async_forward_entry_setups(entry, platforms)
-            _LOGGER.info("Successfully set up platforms")
+            _LOGGER.debug("Setting up platform: %s (attempt %d/%d)", 
+                          platform, attempt + 1, max_retries)
+            await hass.config_entries.async_forward_entry_setups(entry, [platform])
+            _LOGGER.info("Successfully set up platform: %s", platform)
             return True
         except ClientError as e:
             if attempt == max_retries - 1:
-                _LOGGER.error("Network error while setting up platforms: %s", str(e))
-                raise LifeSmartConnectionError(f"Network error while setting up platforms: {str(e)}")
+                _LOGGER.error("Network error while setting up platform %s: %s", platform, str(e))
+                raise LifeSmartConnectionError(f"Network error while setting up platform {platform}: {str(e)}")
             delay = retry_delay * (2 ** attempt)
             _LOGGER.debug("Retrying platform setup in %d seconds", delay)
             await asyncio.sleep(delay)
         except ImportError as e:
-            _LOGGER.error("Platforms not found: %s", str(e))
-            raise LifeSmartPlatformError(f"Platforms not found: {str(e)}")
+            _LOGGER.error("Platform %s not found: %s", platform, str(e))
+            raise LifeSmartPlatformError(f"Platform {platform} not found: {str(e)}")
         except RuntimeError as e:
-            _LOGGER.error("Runtime error while setting up platforms: %s", str(e))
-            raise LifeSmartPlatformError(f"Runtime error while setting up platforms: {str(e)}")
+            _LOGGER.error("Runtime error while setting up platform %s: %s", platform, str(e))
+            raise LifeSmartPlatformError(f"Runtime error while setting up platform {platform}: {str(e)}")
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up LifeSmart Local from a config entry."""
     _LOGGER.debug("Starting LifeSmart integration setup")
     _LOGGER.debug("Config entry data: %s", entry.data)
-    
+
     try:
         _validate_config(entry)
     except LifeSmartConfigError as e:
@@ -155,42 +150,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("Failed to initialize API: %s", str(e))
         return False
 
-    coordinator = LifeSmartCoordinator(
-        hass,
-        api=api,
-        scan_interval=1
-    )
-
-    # await coordinator.async_config_entry_first_refresh()
-
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = {
-        "api_manager": api_manager,
-        "coordinator": coordinator
-    }
-    _LOGGER.debug("API manager and coordinator stored in hass.data")
-
-    # Platform setup with retry mechanism
-    max_retries = 3
-    retry_delay = 2
-    
-    for attempt in range(max_retries):
+    hass.data[DOMAIN][entry.entry_id] = api_manager
+    _LOGGER.debug("API manager stored in hass.data")
+    #register_services(hass)
+    hass.services.async_register(
+        DOMAIN,
+        "send_keys",
+        send_keys,
+        schema=vol.Schema({
+            vol.Required("device_id"): str,
+            vol.Required("keys"): str,
+        })
+    )
+    # Setup platforms one by one
+    setup_results = []
+    for platform in PLATFORMS:
         try:
-            _LOGGER.debug("Setting up platforms (attempt %d/%d)", attempt + 1, max_retries)
-            await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-            _LOGGER.info("Successfully set up platforms")
-            break
-        except Exception as e:
-            if attempt == max_retries - 1:
-                _LOGGER.error("Failed to set up platforms: %s", str(e))
-                return False
-            delay = retry_delay * (2 ** attempt)
-            _LOGGER.debug("Retrying platform setup in %d seconds", delay)
-            await asyncio.sleep(delay)
+            result = await _setup_platform(hass, entry, platform)
+            setup_results.append(result)
+        except (LifeSmartConnectionError, LifeSmartPlatformError) as e:
+            _LOGGER.error("Failed to set up platform %s: %s", platform, str(e))
+            setup_results.append(False)
 
     _LOGGER.debug("All platforms setup completed")
-    return True
 
+    return all(setup_results)
 
 async def _async_unload_platforms(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload platforms for the integration."""
@@ -220,17 +205,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Unloading LifeSmart integration")
     
     try:
+        # Unload all platforms using the dedicated method
         unload_ok: bool = await _async_unload_platforms(hass, entry)
         _LOGGER.info("Platforms unload completed with status: %s", "success" if unload_ok else "failed")
         
+        # Cleanup API instance
         if unload_ok and entry.entry_id in hass.data[DOMAIN]:
-            api_manager: LifeSmartAPIManager = hass.data[DOMAIN][entry.entry_id]["api_manager"]
-            coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-            
-            _LOGGER.info("Cleaning up API instance and coordinator for entry_id: %s", entry.entry_id)
+            api_manager: LifeSmartAPIManager = hass.data[DOMAIN][entry.entry_id]
+            _LOGGER.info("Cleaning up API instance for entry_id: %s", entry.entry_id)
             await api_manager.cleanup()
-            await coordinator.async_shutdown()
         
+        # Remove config entry from domain data
         if unload_ok:
             hass.data[DOMAIN].pop(entry.entry_id)
             _LOGGER.info("Removed entry_id %s from domain data", entry.entry_id)
@@ -243,21 +228,23 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise LifeSmartConfigError(f"Entry data not found in hass.data: {str(e)}")
     except RuntimeError as e:
         raise LifeSmartPlatformError(f"Runtime error while unloading entry: {str(e)}")
-
 def generate_entity_id(device_type, hub_id, device_id, idx=None):
     """Generate entity id from device information."""
     if idx:
         return f"{device_type}_{hub_id}_{device_id}_{idx}".lower()
     return f"{device_type}_{hub_id}_{device_id}".lower()
+async def send_keys(call):
+    """Handle send_keys service calls."""
+    pass
 
 async def send_keys(hass: HomeAssistant, call) -> None:
     """Handle send_keys service calls."""
     device_id = call.data.get("device_id")
     keys = call.data.get("keys")
     
-    for entry_id, data in hass.data[DOMAIN].items():
+    for entry_id, api_manager in hass.data[DOMAIN].items():
         try:
-            await data["api_manager"].api.send_keys(device_id, keys)
+            await api_manager.api.send_keys(device_id, keys)
             _LOGGER.info(f"Successfully sent keys to device {device_id}")
             return
         except Exception as e:

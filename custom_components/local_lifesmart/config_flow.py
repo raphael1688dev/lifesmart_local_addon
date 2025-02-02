@@ -1,9 +1,3 @@
-"""Config flow for the LifeSmart Local integration.
-
-This module handles the configuration flow for the LifeSmart Local integration.
-It allows the user to configure the host, model, and token for their LifeSmart hub.
-The config flow also includes an options flow to allow the user to update the configuration.
-"""
 """Config flow for LifeSmart Local integration."""
 import voluptuous as vol
 import logging
