@@ -19,9 +19,9 @@ SUPPORTED_SWITCH_TYPES = [
     "SL_SW_ND1",
     "SL_SW_ND2",
     "SL_SW_ND3",
-    "SL_SW_IF1",
-    "SL_SW_IF2",
-    "SL_SW_IF3"
+    "SL_SW_IF1_V3",
+    "SL_SW_IF2_V3",
+    "SL_SW_IF3_V3"
 ]
 PORT_1 = "P2"
 PORT_2 = "P3"
