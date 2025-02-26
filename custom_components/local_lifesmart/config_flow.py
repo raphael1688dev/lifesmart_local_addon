@@ -5,7 +5,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_TOKEN
 from homeassistant.core import callback
 import homeassistant.helpers.config_validation as cv
-from .const import DOMAIN , DEFAULT_MODEL,DEFAULT_TOKEN
+from .const import DOMAIN, DEFAULT_MODEL, DEFAULT_TOKEN
 from .api import LifeSmartAPI
 import ipaddress
 
