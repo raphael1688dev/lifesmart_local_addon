@@ -2,8 +2,8 @@
 DOMAIN = "lifesmart"
 MANUFACTURER = "LifeSmart"
 # API Constants
-DEFAULT_MODEL = "OD_ALI_TECH"
-DEFAULT_TOKEN = "8SptZ2l2xnQlb8bSdT8mwA"
+DEFAULT_MODEL = "OD_HANYUN_HA"
+DEFAULT_TOKEN = ""
 
 # API Protocol Constants
 API_TIMEOUT = 10  # seconds
