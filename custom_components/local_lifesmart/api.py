@@ -63,12 +63,11 @@ class LifeSmartAPI:
             
             return response
 
-    """
     async def discover_devices(self):
         args = {"me": "2d02"}
         return await self.send_command("eps", args, 1)
-    """
 
+    """
     async def discover_devices(self):
         args1 = {"me": "2d02"}
         result1 = await self.send_command("eps", args1, 1)
@@ -77,6 +76,7 @@ class LifeSmartAPI:
         result2 = await self.send_command("eps", args2, 1)
 
         return [result1, result2]
+    """
 
     async def get_state_updates(self):
         if not self._socket:
