@@ -19,9 +19,9 @@ SUPPORTED_SWITCH_TYPES = [
     "SL_SW_ND1",
     "SL_SW_ND2",
     "SL_SW_ND3",
-    "SL_SW_IF1_V3",
-    "SL_SW_IF2_V3",
-    "SL_SW_IF3_V3"
+    "SL_SW_IF1",
+    "SL_SW_IF2",
+    "SL_SW_IF3"
 ]
 PORT_1 = "P2"
 PORT_2 = "P3"
@@ -41,7 +41,8 @@ async def async_setup_entry(
         for device in devices_data["msg"]:
             if device.get("devtype") in SUPPORTED_SWITCH_TYPES:
                 data = device.get("data", {})
-                for channel in ["L1", "L2", "L3", "P1", "P2", "P3"]:
+                #for channel in ["L1", "L2", "L3", "P1", "P2", "P3"]:
+                for channel in ["L1", "L2", "L3"]:
                     if channel in data:
                         channel_data = data[channel]
                         channel_name = channel_data.get('name', channel).replace('{$EPN}', '').strip()
