@@ -16,6 +16,12 @@ VAL_TYPE_ON = "0x81"
 VAL_TYPE_OFF = "0x80"
 
 SUPPORTED_SWITCH_TYPES = [
+    "SL_SW_ND1",
+    "SL_SW_ND2",
+    "SL_SW_ND3",
+    "SL_SW_IF1",
+    "SL_SW_IF2",
+    "SL_SW_IF3",
     "SL_SW_NS1",
     "SL_SW_NS2",
     "SL_SW_NS3",
