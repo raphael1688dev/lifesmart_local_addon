@@ -1,8 +1,8 @@
 {
     "domain": "lifesmart",
     "name": "LifeSmart LocalAPI",
-    "documentation": "https://github.com/yourusername/local_lifesmart",
-    "codeowners": ["@yourusername"],
+    "documentation": "https://github.com/raphael1688dev/lifesmart_local_addon",
+    "codeowners": ["@raphael1688dev"],
     "config_flow": true,
     "options": true,
     "dependencies": [],
