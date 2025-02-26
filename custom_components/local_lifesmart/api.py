@@ -64,7 +64,10 @@ class LifeSmartAPI:
             return response
 
     async def discover_devices(self):
+        """
         args = {"me": "2d02"}
+        """
+        args = {"me": ""}
         return await self.send_command("eps", args, 1)
 
     """
