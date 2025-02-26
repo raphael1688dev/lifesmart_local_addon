@@ -62,25 +62,19 @@ class LifeSmartAPI:
             response = json.loads(data[10:].decode('utf-8'))
             
             return response
-
+"""
     async def discover_devices(self):
-        """
-        args = {"me": "2d02"}
-        """
         args = {"me": ""}
         return await self.send_command("eps", args, 1)
+"""
 
-    """
-    async def discover_devices(self):
-        args1 = {"me": "2d02"}
-        result1 = await self.send_command("eps", args1, 1)
-
-        args2 = {"me": "2d11"}
-        result2 = await self.send_command("eps", args2, 1)
-
-        return [result1, result2]
-    """
-
+    async def discover_devices(self, device_id: str):
+        args = {
+            "me": device_id,
+        }
+        
+        return await self.send_command("ep", args, 1)
+    
     async def get_state_updates(self):
         if not self._socket:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
