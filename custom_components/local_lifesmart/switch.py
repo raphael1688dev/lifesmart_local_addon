@@ -45,7 +45,7 @@ async def async_setup_entry(
         for device in devices_data["msg"]:
             if device.get("devtype") in SUPPORTED_SWITCH_TYPES:
                 data = device.get("data", {})
-                for channel in ["L1", "L2", "L3"]:
+                for channel in ["L1", "L2", "L3","P1","P2","P3"]:
                     if channel in data:
                         channel_data = data[channel]
                         channel_name = channel_data.get('name', channel).replace('{$EPN}', '').strip()
