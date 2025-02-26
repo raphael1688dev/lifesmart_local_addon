@@ -18,9 +18,7 @@ VAL_TYPE_OFF = "0x80"
 SUPPORTED_SWITCH_TYPES = [
     "SL_SW_ND1",
     "SL_SW_ND2",
-    "SL_SW_ND3"
-]
-SUPPORTED_LIGHT_SWITCH_TYPES = [
+    "SL_SW_ND3",
     "SL_SW_IF1",
     "SL_SW_IF2",
     "SL_SW_IF3"
