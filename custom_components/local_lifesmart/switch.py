@@ -39,6 +39,7 @@ async def async_setup_entry(
     switches = []
     if isinstance(devices_data, dict) and "msg" in devices_data:
         _LOGGER.debug("Found %s devices in response", len(devices_data["msg"]))
+        _LOGGER.debug("MSG", devices_data["msg"])
         for device in devices_data["msg"]:
             if device.get("devtype") in SUPPORTED_SWITCH_TYPES:
                 data = device.get("data", {})
