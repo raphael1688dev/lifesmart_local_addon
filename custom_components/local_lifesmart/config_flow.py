@@ -4,8 +4,7 @@ import logging
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_TOKEN
 from homeassistant.core import callback
-import homeassistant.helpers.config_validation as cv
-from .const import DOMAIN , DEFAULT_MODEL,DEFAULT_TOKEN
+from .const import DOMAIN, DEFAULT_MODEL
 from .api import LifeSmartAPI
 import ipaddress
 
@@ -23,15 +22,20 @@ def validate_host(host):
 
 def validate_token(token):
     """Validate token format."""
-    if not isinstance(token, str) or len(token) != 24:
-        raise vol.Invalid("Token must be 24 characters long")
+    if not isinstance(token, str):
+        raise vol.Invalid("Invalid token")
+    token = token.strip()
+    if not 16 <= len(token) <= 64:
+        raise vol.Invalid("Invalid token length")
+    if not token.isalnum():
+        raise vol.Invalid("Invalid token characters")
     return token
 
 DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): str,
         vol.Required("model", default=DEFAULT_MODEL): str,
-        vol.Required(CONF_TOKEN, default=DEFAULT_TOKEN): str,
+        vol.Required(CONF_TOKEN, default="8SptZ2l2xnQlb8bSdT8mwA"): str,
     }
 )
 
@@ -77,50 +81,58 @@ class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
-        _LOGGER.debug("Starting async_step_user with input: %s", user_input)
         errors = {}
 
         if user_input is not None:
             try:
-                # Additional validation before creating API instance
-                if not 1 <= len(user_input[CONF_HOST]) <= 253:
+                try:
+                    user_input[CONF_HOST] = validate_host(user_input[CONF_HOST])
+                except vol.Invalid:
                     errors["base"] = "invalid_host"
-                    raise vol.Invalid("Invalid host length")
+                    raise
 
-                if not 1 <= len(user_input["model"]) <= 50:
+                model = user_input.get("model", "")
+                if not isinstance(model, str) or not 1 <= len(model) <= 50:
                     errors["base"] = "invalid_model"
-                    raise vol.Invalid("Invalid model length")
+                    raise vol.Invalid("Invalid model")
 
-                _LOGGER.debug("Attempting to connect to LifeSmart hub at %s", user_input[CONF_HOST])
+                try:
+                    user_input[CONF_TOKEN] = validate_token(user_input[CONF_TOKEN])
+                except vol.Invalid:
+                    errors["base"] = "invalid_token"
+                    raise
+
+                await self.async_set_unique_id(user_input[CONF_HOST])
+                self._abort_if_unique_id_configured()
+
                 api = LifeSmartAPI(
                     host=user_input[CONF_HOST],
                     model=user_input["model"],
                     token=user_input[CONF_TOKEN],
-                    timeout=30
+                    timeout=30,
+                    local_port=0
                 )
                 
                 # Test the connection
-                _LOGGER.debug("Starting device discovery")
-                devices = await api.discover_devices()
+                try:
+                    devices = await api.discover_devices()
+                finally:
+                    await api.async_stop()
                 if devices:
-                    _LOGGER.debug("Devices found: %s", devices)
+                    user_input["local_port"] = api.local_port
                     return self.async_create_entry(
                         title="LifeSmart Hub",
                         data=user_input
                     )
                 else:
-                    _LOGGER.debug("No devices found")
                     errors["base"] = "no_devices"
                     
             except vol.Invalid as e:
-                _LOGGER.debug("Validation error: %s", str(e))
                 if "base" not in errors:
                     errors["base"] = "invalid_config"
             except Exception as e:
-                _LOGGER.debug("Connection failed with error: %s", str(e))
                 errors["base"] = "cannot_connect"
 
-        _LOGGER.debug("Showing configuration form with errors: %s", errors)
         return self.async_show_form(
             step_id="user",
             data_schema=DATA_SCHEMA,

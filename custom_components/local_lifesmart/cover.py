@@ -1,12 +1,12 @@
 """Platform for LifeSmart cover integration."""
 import logging
-from typing import Any, Dict, Optional, List
+from typing import Optional
 from homeassistant.components.cover import CoverEntity, CoverDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from .const import DOMAIN, CMD_GET, CMD_SET
+from .const import DOMAIN, CMD_SET
 from . import generate_entity_id
 
 _LOGGER = logging.getLogger(__name__)
@@ -20,13 +20,19 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     _LOGGER.debug("Setting up LifeSmart cover platform")
-    api = hass.data[DOMAIN][config_entry.entry_id].api
-    devices_data = await api.discover_devices()
+    entry_data = hass.data[DOMAIN]["entries"][config_entry.entry_id]
+    api = entry_data["api"]
+    devices = entry_data.get("devices") or []
+    if not devices:
+        devices_data = await api.discover_devices()
+        if isinstance(devices_data, dict) and isinstance(devices_data.get("msg"), list):
+            devices = devices_data["msg"]
+            entry_data["devices"] = devices
     
     covers = []
-    if isinstance(devices_data, dict) and "msg" in devices_data:
-        _LOGGER.debug("Found %s devices in response", len(devices_data["msg"]))
-        for device in devices_data["msg"]:
+    if isinstance(devices, list):
+        _LOGGER.debug("Found %s devices in response", len(devices))
+        for device in devices:
             if device.get("devtype") == "SL_P":
                 _LOGGER.debug("Adding cover device: %s", device.get('name', 'MINS Curtain'))
                 covers.append(
@@ -42,18 +48,19 @@ async def async_setup_entry(
 
 class LifeSmartCover(CoverEntity):
     """Representation of a LifeSmart cover."""
+    _attr_should_poll = False
     def __init__(self, api, device, idx: Optional[str] = None):
         self._api = api
         self._device = device
         self._attr_name = device.get('name', 'MINS Curtain')
         self._attr_unique_id = f"lifesmart_cover_{device['me']}"
         self._attr_device_class = CoverDeviceClass.CURTAIN
-        self._attr_is_closed = None  # Add this line
-        device_type = device.get('devtype')
-        hub_id = device.get('agt', '')
-        device_id = device['me']
+        self._attr_is_closed = None
         self._idx = idx
-        self.entity_id = f"{DOMAIN}.{generate_entity_id(device_type, hub_id, device_id, idx)}"
+        device_type = device.get("devtype")
+        hub_id = device.get("agt", "")
+        device_id = device["me"]
+        self.entity_id = f"cover.{generate_entity_id(device_type, hub_id, device_id, idx)}"
 
         _LOGGER.debug("Initializing cover: %s (ID: %s)", self._attr_name, self._attr_unique_id)
         

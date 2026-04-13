@@ -1,19 +1,18 @@
 """Platform for LifeSmart switch integration."""
+import asyncio
 import logging
-from datetime import timedelta
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.event import async_track_time_interval
 from .const import DOMAIN, CMD_GET, CMD_SET, MANUFACTURER, VAL_TYPE_ONOFF
-from . import generate_entity_id 
+from . import generate_entity_id
 
 _LOGGER = logging.getLogger(__name__)
 
-VAL_TYPE_ON = "0x81"
-VAL_TYPE_OFF = "0x80"
+VAL_TYPE_ON = 0x81
+VAL_TYPE_OFF = 0x80
 
 SUPPORTED_SWITCH_TYPES = [
     "SL_SW_NS1",
@@ -21,22 +20,24 @@ SUPPORTED_SWITCH_TYPES = [
     "SL_SW_NS3",
     "SL_NATURE"
 ]
-PORT_1 = "P2"
-PORT_2 = "P3"
-PORT_3 = "P4"
-
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up LifeSmart switches."""
-    api = hass.data[DOMAIN][config_entry.entry_id].api
-    devices_data = await api.discover_devices()
+    entry_data = hass.data[DOMAIN]["entries"][config_entry.entry_id]
+    api = entry_data["api"]
+    devices = entry_data.get("devices") or []
+    if not devices:
+        devices_data = await api.discover_devices()
+        if isinstance(devices_data, dict) and isinstance(devices_data.get("msg"), list):
+            devices = devices_data["msg"]
+            entry_data["devices"] = devices
     
     switches = []
-    if isinstance(devices_data, dict) and "msg" in devices_data:
-        for device in devices_data["msg"]:
+    if isinstance(devices, list):
+        for device in devices:
             if device.get("devtype") in SUPPORTED_SWITCH_TYPES:
                 data = device.get("data", {})
                 for channel in ["L1", "L2", "L3"]:
@@ -56,6 +57,7 @@ async def async_setup_entry(
     async_add_entities(switches)
 
 class LifeSmartSwitch(SwitchEntity):
+    _attr_should_poll = False
     def __init__(self, api, device, idx, name):
         """Initialize the switch."""
         self._api = api
@@ -63,35 +65,38 @@ class LifeSmartSwitch(SwitchEntity):
         self._idx = idx
         self._attr_name = name
         self._available = True
-        self._remove_tracker = None
+        self._unsub_report = None
+        self._expected_state = None
+        self._confirm_event = None
+        self._failures = 0
+        self._send_lock = asyncio.Lock()
+        self._send_task: asyncio.Task | None = None
+        self._pending_value: int | None = None
+        self._pending_waiters: list[asyncio.Future] = []
         
         device_type = device.get('devtype')
         hub_id = device.get('agt', '')
         device_id = device['me']
-        
-        self.entity_id = f"{DOMAIN}.{generate_entity_id(device_type, hub_id, device_id, idx)}"
         self._attr_unique_id = f"lifesmart_switch_{device_id}_{idx}"
+        self.entity_id = f"switch.{generate_entity_id(device_type, hub_id, device_id, idx)}"
         
         initial_state = device.get("data", {}).get(idx, {}).get("v", 0)
         self._state = bool(initial_state)
 
     async def async_added_to_hass(self):
         """When entity is added to hass."""
+        self._unsub_report = self._api.register_state_listener(self._device["me"], self._idx, self._handle_state_value)
         await self._async_update_state()
-        
-        # Set up periodic state updates
-        self._remove_tracker = async_track_time_interval(
-            self.hass,
-            self._async_update_state,
-            timedelta(seconds=1)
-        )
 
     async def async_will_remove_from_hass(self):
         """When entity is removed from hass."""
-        if self._remove_tracker:
-            self._remove_tracker()
+        if self._unsub_report:
+            self._unsub_report()
+            self._unsub_report = None
+        if self._send_task:
+            self._send_task.cancel()
+            self._send_task = None
 
-    @callback
     async def _async_update_state(self, *_):
         """Fetch state from device."""
         try:
@@ -115,8 +120,24 @@ class LifeSmartSwitch(SwitchEntity):
                 )
             self.async_write_ha_state()
         except Exception as ex:
-            _LOGGER.error(f"Error updating switch state: {ex} device= {self._device} idx={self._idx}  ")
-            self._available = False
+            self._failures += 1
+            if self._failures >= 3:
+                self._available = False
+            self.async_write_ha_state()
+
+    def _handle_state_value(self, val) -> None:
+        if not isinstance(val, (int, float)):
+            return
+        self._state = bool(int(val))
+        self._available = True
+        self._failures = 0
+        if self._confirm_event and self._expected_state is not None and self._state == self._expected_state:
+            self._confirm_event.set()
+        if self.hass:
+            self.hass.async_create_task(self._async_write_state())
+
+    async def _async_write_state(self) -> None:
+        self.async_write_ha_state()
 
     @property
     def available(self):
@@ -138,35 +159,39 @@ class LifeSmartSwitch(SwitchEntity):
             model=self._device.get('devtype'),
             sw_version=self._device.get('epver'),
         )
+
     async def async_turn_on(self, **kwargs):
         """Turn the switch on."""
-        previous_state = self._state
-        self._state = True
-        self.async_write_ha_state()  # Immediate UI feedback
-        
-        success = await self._send_command(1)
-        if not success:
-            # Rollback UI state if command failed
-            self._state = previous_state
-            self.async_write_ha_state()
-            _LOGGER.warning("Failed to turn on switch, UI state reverted")
+        await self._enqueue_command(1)
+
     async def async_turn_off(self, **kwargs):
         """Turn the switch off."""
-        previous_state = self._state
-        self._state = False
-        self.async_write_ha_state()  # Immediate UI feedback
-        
-        success = await self._send_command(0)
-        if not success:
-            # Rollback UI state if command failed
-            self._state = previous_state
-            self.async_write_ha_state()
-            _LOGGER.warning("Failed to turn off switch, UI state reverted")
+        await self._enqueue_command(0)
 
+    async def _enqueue_command(self, value: int) -> None:
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        self._pending_value = value
+        self._pending_waiters.append(fut)
+        if self._send_task is None or self._send_task.done():
+            self._send_task = self.hass.async_create_task(self._drain_pending_commands())
+        await fut
 
+    async def _drain_pending_commands(self) -> None:
+        async with self._send_lock:
+            while self._pending_value is not None:
+                value = self._pending_value
+                waiters = self._pending_waiters
+                self._pending_value = None
+                self._pending_waiters = []
+                try:
+                    await self._send_command(value)
+                finally:
+                    for w in waiters:
+                        if not w.done():
+                            w.set_result(None)
 
-    async def _send_command(self, value: int) -> bool:
-        """Send command to device and return success status."""
+    async def _send_command(self, value: int) -> None:
         args = {
             "tag": "m",
             "me": self._device["me"],
@@ -175,21 +200,28 @@ class LifeSmartSwitch(SwitchEntity):
             "val": value
         }
         try:
-            response = await self._api.send_command("ep", args, CMD_SET, 2)
+            self._expected_state = bool(value)
+            self._confirm_event = asyncio.Event()
+            try:
+                response = await self._api.send_command("ep", args, CMD_SET, 0.7)
+            except asyncio.TimeoutError:
+                response = {"code": 0}
+
             if response.get("code") == 0:
                 self._available = True
-                return True
+                self._failures = 0
+                try:
+                    await asyncio.wait_for(self._confirm_event.wait(), timeout=1.5)
+                except asyncio.TimeoutError:
+                    await self._async_update_state()
             else:
-                _LOGGER.error("Device command failed with code: %s", response.get("code"))
-                self._available = False
-                return False
+                await self._async_update_state()
         except Exception as ex:
-            if "timed out" in str(ex).lower():
-                # For timeouts, assume success (as per your current logic)
-                _LOGGER.warning("Command timed out but may have succeeded: %s", str(ex))
-                self._available = True
-                return True
-            else:
-                _LOGGER.error("Error sending command: %s", str(ex))
+            _LOGGER.error("Error sending command: %s", type(ex).__name__)
+            self._failures += 1
+            if self._failures >= 3:
                 self._available = False
-                return False
+            self.async_write_ha_state()
+        finally:
+            self._expected_state = None
+            self._confirm_event = None
