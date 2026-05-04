@@ -48,10 +48,17 @@ async def async_setup_entry(
     remotes: List[LifeSmartRemote] = []
     
     if isinstance(devices, list):
-        remote_list = await api.get_remote_list()
-        if not isinstance(remote_list, list):
-            _LOGGER.warning("Failed to load remote list from hub")
-            remote_list = []
+        # 優化點：先檢查設備清單中，是否真的存在支援的 IR 設備
+        has_ir_device = any(_normalize_devtype(d.get("devtype")) in SUPPORTED_REMOTE_TYPES for d in devices)
+        
+        remote_list = []
+        if has_ir_device:
+            # 只有真的有 IR 設備，才去呼叫 API
+            remote_list = await api.get_remote_list()
+            if not isinstance(remote_list, list):
+                _LOGGER.warning("Failed to load remote list from hub")
+                remote_list = []
+        
         device_remotes = {}
         
         for device in devices:
