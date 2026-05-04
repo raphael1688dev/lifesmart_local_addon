@@ -160,22 +160,37 @@ class LifeSmartTemperatureSensor(LifeSmartBaseSensor):
 
     async def _async_update(self, *_: Any) -> None:
         """Fetch temperature from device."""
+        # 淨化 GET 參數
         args: Dict[str, Any] = {
-            "tag": "m",
             "me": self._device["me"],
-            "idx": self._idx,
-            "type": "T",
-            "val": 0
+            "idx": self._idx
         }
-        
         try:
             response: Dict[str, Any] = await self._api.send_command("ep", args, CMD_GET)
             if response.get("code") == 0 and "msg" in response:
                 temp_value = response["msg"]["data"]["T"]["v"]
-                self._attr_native_value = float(temp_value)
+                # 依據官方規範：將整數除以 10 還原為真實溫度
+                self._attr_native_value = float(temp_value) / 10.0 
                 self.async_write_ha_state()
         except Exception as e:
             _LOGGER.error(f"Unexpected error updating temperature sensor: {str(e)}")
+        #args: Dict[str, Any] = {
+        #    "tag": "m",
+        #    "me": self._device["me"],
+        #    "idx": self._idx,
+        #    "type": "T",
+        #    "val": 0
+        #}
+        
+        #try:
+        #    response: Dict[str, Any] = await self._api.send_command("ep", args, CMD_GET)
+        #    if response.get("code") == 0 and "msg" in response:
+        #        temp_value = response["msg"]["data"]["T"]["v"]
+        #        self._attr_native_value = float(temp_value)
+        #        self.async_write_ha_state()
+        #except Exception as e:
+        #    _LOGGER.error(f"Unexpected error updating temperature sensor: {str(e)}")
+        
 
 class LifeSmartBatterySensor(LifeSmartBaseSensor):
     _attr_name: str
