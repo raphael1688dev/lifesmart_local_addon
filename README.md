@@ -30,6 +30,10 @@ Currently supports:
 - SL_SW_NS2 (Double Switch)
 - SL_SW_NS3 (Triple Switch)
 - SL_NATURE (Nature Series)
+- SL_SW_IF1
+- SL_SW_IF2
+- SL_SW_IF3
+- SL_SW_RC
 
 ## Usage
 
