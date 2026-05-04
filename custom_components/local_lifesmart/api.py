@@ -130,26 +130,6 @@ class LifeSmartAPI:
         finally:
             self._pending.pop(msg_id, None)
 
-    async def send_command_oneshot(self, obj: str, args: Dict[str, Any], pkg_type: int, timeout: Optional[float] = None) -> Dict[str, Any]:
-        msg_id = self.sequence
-        self.sequence += 1
-        message = self._create_message(obj, args, pkg_type, msg_id)
-        to = timeout or self.timeout
-
-        def _send_recv() -> Dict[str, Any]:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.settimeout(to)
-                sock.sendto(message, (self.host, API_PORT))
-                data, _ = sock.recvfrom(65535)
-                if len(data) < 10:
-                    raise ValueError("Short UDP reply")
-                _, _, _, pkg_size = struct.unpack(">2sHHI", data[:10])
-                body = data[10:10 + pkg_size]
-                return json.loads(body.decode("utf-8"))
-
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _send_recv)
-
     async def discover_devices(self):
         args = {"me": "2d02"}
         return await self.send_command("eps", args, 1)
@@ -159,7 +139,7 @@ class LifeSmartAPI:
         args = {
             "cmd": "getlist"
         }
-        response = await self.send_command_oneshot("spotremote", args, 3)
+        response = await self.send_command("spotremote", args, 3)
         
         if response and response.get("code") == 0 and "msg" in response:
             remote_list = response["msg"]
@@ -183,7 +163,7 @@ class LifeSmartAPI:
             "id": remote_id,
             "cmd": "getkeys"
         }
-        return await self.send_command_oneshot("spotremote", args, 3)
+        return await self.send_command("spotremote", args, 3)
 
     async def send_remote_key(self, remote_id: str, key: str) -> Dict[str, Any]:
         """Send IR remote key command."""
@@ -192,7 +172,7 @@ class LifeSmartAPI:
             "cmd": "sendkey",
             "key": key
         }
-        return await self.send_command_oneshot("spotremote", args, 3)
+        return await self.send_command("spotremote", args, 3)
 
     def _handle_datagram(self, data: bytes) -> None:
         if len(data) < 10:
