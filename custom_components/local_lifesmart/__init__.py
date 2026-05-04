@@ -58,7 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:
             _LOGGER.debug("Failed to refresh OpenDev event service (cfg:notify)")
 
-    unsub_notify = async_track_time_interval(hass, _refresh_notify, timedelta(seconds=240))
+    unsub_notify = async_track_time_interval(hass, _refresh_notify, timedelta(seconds=90))
     domain_data["entries"][entry.entry_id]["unsub_notify"] = unsub_notify
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
