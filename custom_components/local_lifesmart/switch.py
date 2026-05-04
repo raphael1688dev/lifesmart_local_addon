@@ -109,12 +109,18 @@ class LifeSmartSwitch(SwitchEntity):
     async def _async_update_state(self, *_):
         """Fetch state from device."""
         try:
+            # args = {
+            #     "tag": "m",
+            #    "me": self._device["me"],
+            #    "idx": self._idx,
+            #     "type": VAL_TYPE_ONOFF,
+            #     "val": 0
+            #}
+            #response = await self._api.send_command("ep", args, CMD_GET)
+            # 淨化 GET 參數，移除 tag, type, val
             args = {
-                "tag": "m",
                 "me": self._device["me"],
-                "idx": self._idx,
-                "type": VAL_TYPE_ONOFF,
-                "val": 0
+                "idx": self._idx
             }
             response = await self._api.send_command("ep", args, CMD_GET)
             if response.get("code") == 0 and "msg" in response:
