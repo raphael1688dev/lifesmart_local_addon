@@ -33,6 +33,10 @@ Currently supports:
 - SL_SW_NS2 (Double Switch)
 - SL_SW_NS3 (Triple Switch)
 - SL_NATURE (Nature Series)
+- SL_SW_IF1
+- SL_SW_IF2
+- SL_SW_IF3
+- SL_SW_RC
 - SL_P (Curtain module, basic open/close/stop)
 - SL_P_IR (IR module as Home Assistant Remote)
 
