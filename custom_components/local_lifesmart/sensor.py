@@ -134,6 +134,30 @@ class LifeSmartBaseSensor(SensorEntity):
     async def _async_write_state(self) -> None:
         self.async_write_ha_state()
 
+#class LifeSmartTemperatureSensor(LifeSmartBaseSensor):
+#    _attr_name: str
+#    _attr_unique_id: str
+#    _attr_native_value: Optional[float]
+#    _attr_native_unit_of_measurement: str
+#    
+#    def __init__(self, api: Any, device: Dict[str, Any], idx: str) -> None:
+#        super().__init__(api, device, idx)
+#        try:
+#            self._attr_name = f"{device.get('name', 'Temperature Sensor')}"
+#            self._attr_unique_id = f"lifesmart_temp_{device['me']}"
+#            self._attr_native_value = device.get("data", {}).get(idx, {}).get("v")
+#            self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+#            device_type = device.get('devtype')
+#            hub_id = device.get('agt', '')
+#            device_id = device['me']
+#            self._idx = idx
+#            from . import generate_entity_id
+#            self.entity_id = f"sensor.{generate_entity_id(device_type, hub_id, device_id, idx)}"
+#
+#        except KeyError as e:
+#            _LOGGER.error(f"Missing required temperature sensor field: {str(e)}")
+#            raise
+#
 class LifeSmartTemperatureSensor(LifeSmartBaseSensor):
     _attr_name: str
     _attr_unique_id: str
@@ -145,7 +169,14 @@ class LifeSmartTemperatureSensor(LifeSmartBaseSensor):
         try:
             self._attr_name = f"{device.get('name', 'Temperature Sensor')}"
             self._attr_unique_id = f"lifesmart_temp_{device['me']}"
-            self._attr_native_value = device.get("data", {}).get(idx, {}).get("v")
+            
+            # 修正點：從初始資料讀取時也要除以 10.0
+            raw_v = device.get("data", {}).get(idx, {}).get("v")
+            if raw_v is not None:
+                self._attr_native_value = float(raw_v) / 10.0
+            else:
+                self._attr_native_value = None
+                
             self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
             device_type = device.get('devtype')
             hub_id = device.get('agt', '')
@@ -157,7 +188,7 @@ class LifeSmartTemperatureSensor(LifeSmartBaseSensor):
         except KeyError as e:
             _LOGGER.error(f"Missing required temperature sensor field: {str(e)}")
             raise
-
+            
     async def _async_update(self, *_: Any) -> None:
         """Fetch temperature from device."""
         # 淨化 GET 參數
