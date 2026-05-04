@@ -131,7 +131,9 @@ class LifeSmartAPI:
             self._pending.pop(msg_id, None)
 
     async def discover_devices(self):
-        args = {"me": "2d02"}
+        # 移除錯誤的 hardcode ID，改為標準空請求
+        args = {}
+        # args = {"me": "2d02"}
         return await self.send_command("eps", args, 1)
 
     async def get_remote_list(self) -> Dict[str, Any]:
