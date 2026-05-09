@@ -10,7 +10,6 @@ from .api import LifeSmartAPI
 _LOGGER = logging.getLogger(__name__)
 
 def validate_host(host):
-    """Validate that the host is a valid IP address or hostname."""
     try:
         ipaddress.ip_address(host)
         return host
@@ -20,7 +19,6 @@ def validate_host(host):
         return host
 
 def validate_token(token):
-    """Validate token format."""
     if not isinstance(token, str):
         raise vol.Invalid("Invalid token")
     token = token.strip()
@@ -40,17 +38,13 @@ DATA_SCHEMA = vol.Schema(
 
 @config_entries.HANDLERS.register(DOMAIN)
 class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for LifeSmart Local."""
-
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_PUSH
 
     def __init__(self):
-        """Initialize the config flow."""
         self._errors = {}
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step."""
         errors = {}
         if user_input is not None:
             try:
@@ -84,7 +78,6 @@ class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA, errors=errors)
 
     async def async_step_reconfigure(self, user_input=None):
-        """Handle reconfiguration (點擊三個點 -> 重新設定)."""
         errors = {}
         entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
 
