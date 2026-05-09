@@ -4,7 +4,6 @@ import logging
 import ipaddress
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_TOKEN
-from homeassistant.core import callback
 from .const import DOMAIN, DEFAULT_MODEL
 from .api import LifeSmartAPI
 
@@ -39,26 +38,6 @@ DATA_SCHEMA = vol.Schema(
     }
 )
 
-class OptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options flow for LifeSmart integration."""
-
-    def __init__(self, config_entry):
-        """Initialize options flow."""
-        self.config_entry = config_entry
-        _LOGGER.debug("Initializing options flow handler")
-
-    async def async_step_init(self, user_input=None):
-        """Handle options flow."""
-        _LOGGER.debug("Processing options flow init step")
-        if user_input is not None:
-            _LOGGER.debug("Saving options: %s", user_input)
-            return self.async_create_entry(title="", data=user_input)
-
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema({})
-        )
-
 @config_entries.HANDLERS.register(DOMAIN)
 class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for LifeSmart Local."""
@@ -68,40 +47,16 @@ class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self):
         """Initialize the config flow."""
-        _LOGGER.debug("Initializing LifeSmart config flow")
         self._errors = {}
-        self.config_entry = None
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry):
-        """Get the options flow for this handler."""
-        _LOGGER.debug("Creating options flow handler for entry: %s", config_entry.entry_id)
-        return OptionsFlowHandler(config_entry)
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
         errors = {}
-
         if user_input is not None:
             try:
-                try:
-                    user_input[CONF_HOST] = validate_host(user_input[CONF_HOST])
-                except vol.Invalid:
-                    errors["base"] = "invalid_host"
-                    raise
-
-                model = user_input.get("model", "")
-                if not isinstance(model, str) or not 1 <= len(model) <= 50:
-                    errors["base"] = "invalid_model"
-                    raise vol.Invalid("Invalid model")
-
-                try:
-                    user_input[CONF_TOKEN] = validate_token(user_input[CONF_TOKEN])
-                except vol.Invalid:
-                    errors["base"] = "invalid_token"
-                    raise
-
+                user_input[CONF_HOST] = validate_host(user_input[CONF_HOST])
+                user_input[CONF_TOKEN] = validate_token(user_input[CONF_TOKEN])
+                
                 await self.async_set_unique_id(user_input[CONF_HOST])
                 self._abort_if_unique_id_configured()
 
@@ -113,7 +68,6 @@ class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     local_port=0
                 )
                 
-                # Test the connection (加上顯式的 async_start)
                 try:
                     await api.async_start()
                     devices = await api.discover_devices()
@@ -122,33 +76,20 @@ class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 if devices:
                     user_input["local_port"] = api.local_port
-                    return self.async_create_entry(
-                        title="LifeSmart Hub",
-                        data=user_input
-                    )
-                else:
-                    errors["base"] = "no_devices"
-                    
-            except vol.Invalid:
-                if "base" not in errors:
-                    errors["base"] = "invalid_config"
+                    return self.async_create_entry(title="LifeSmart Hub", data=user_input)
+                errors["base"] = "no_devices"
             except Exception:
                 errors["base"] = "cannot_connect"
 
-        return self.async_show_form(
-            step_id="user",
-            data_schema=DATA_SCHEMA,
-            errors=errors
-        )
+        return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA, errors=errors)
 
     async def async_step_reconfigure(self, user_input=None):
-        """Handle the reconfiguration step (解決 500 錯誤的關鍵)."""
+        """Handle reconfiguration (點擊三個點 -> 重新設定)."""
         errors = {}
         entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
 
         if user_input is not None:
             try:
-                # 重用驗證邏輯
                 user_input[CONF_HOST] = validate_host(user_input[CONF_HOST])
                 user_input[CONF_TOKEN] = validate_token(user_input[CONF_TOKEN])
 
@@ -160,7 +101,6 @@ class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     local_port=0
                 )
                 
-                # 測試新設定是否可連線
                 try:
                     await api.async_start()
                     devices = await api.discover_devices()
@@ -170,33 +110,15 @@ class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if devices:
                     user_input["local_port"] = api.local_port
                     return self.async_update_reload_and_abort(
-                        entry,
-                        data={**entry.data, **user_input},
+                        entry, data={**entry.data, **user_input}
                     )
-                else:
-                    errors["base"] = "no_devices"
-
-            except vol.Invalid:
-                errors["base"] = "invalid_config"
+                errors["base"] = "no_devices"
             except Exception:
                 errors["base"] = "cannot_connect"
 
-        # 預先填入舊有的設定值
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_HOST, default=entry.data.get(CONF_HOST)): str,
-                vol.Required("model", default=entry.data.get("model", DEFAULT_MODEL)): str,
-                vol.Required(CONF_TOKEN, default=entry.data.get(CONF_TOKEN)): str,
-            }
-        )
-
-        return self.async_show_form(
-            step_id="reconfigure",
-            data_schema=schema,
-            errors=errors
-        )
-
-    async def async_step_import(self, user_input=None):
-        """Handle import from configuration.yaml."""
-        _LOGGER.debug("Starting async_step_import with input: %s", user_input)
-        return await self.async_step_user(user_input)
+        schema = vol.Schema({
+            vol.Required(CONF_HOST, default=entry.data.get(CONF_HOST)): str,
+            vol.Required("model", default=entry.data.get("model", DEFAULT_MODEL)): str,
+            vol.Required(CONF_TOKEN, default=entry.data.get(CONF_TOKEN)): str,
+        })
+        return self.async_show_form(step_id="reconfigure", data_schema=schema, errors=errors)
