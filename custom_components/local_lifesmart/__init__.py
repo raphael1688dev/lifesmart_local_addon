@@ -4,7 +4,6 @@ import re
 import socket
 from datetime import timedelta
 import voluptuous as vol
-from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -26,22 +25,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up LifeSmart Local from a config entry."""
     api = LifeSmartAPI(
         host=entry.data["host"],
-        model=entry.data["model"],
+        model=entry.data.get("model", "OD_ALI_TECH"),
         token=entry.data["token"],
         timeout=API_TIMEOUT,
         local_port=entry.data.get("local_port", 0),
     )
+    
     try:
+        # 關鍵：開啟 UDP 監聽
         await api.async_start()
         discovery = await api.discover_devices()
+        _LOGGER.debug(f"Raw discovery response: {discovery}")
     except Exception as err:
+        _LOGGER.error(f"Failed to connect or discover devices: {err}")
         await api.async_stop()
         raise ConfigEntryNotReady from err
 
     domain_data = hass.data.setdefault(DOMAIN, {"entries": {}, "_services_registered": False})
+    
+    # 強大的雙棲解析器：解決實體 Unavailable 問題
     devices = []
-    if isinstance(discovery, dict) and isinstance(discovery.get("msg"), list):
-        devices = discovery["msg"]
+    if isinstance(discovery, dict) and "msg" in discovery:
+        msg_data = discovery["msg"]
+        if isinstance(msg_data, list):
+            devices = msg_data
+        elif isinstance(msg_data, dict):
+            # 相容部分網關韌體回傳的字典格式
+            devices = [dev for dev in msg_data.values() if isinstance(dev, dict)]
+            
+    if not devices:
+        _LOGGER.warning(f"No devices found or unrecognized format. Raw data: {discovery}")
+    else:
+        _LOGGER.info(f"Successfully loaded {len(devices)} devices from LifeSmart Hub.")
+
     domain_data["entries"][entry.entry_id] = {"api": api, "devices": devices}
 
     _async_register_services(hass)
@@ -50,13 +66,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await api.configure_event_service(local_ip, api.local_port)
     except Exception:
-        _LOGGER.warning("Failed to configure OpenDev event service (cfg:notify)")
+        _LOGGER.warning("Failed to configure OpenDev event service")
 
     async def _refresh_notify(_now) -> None:
         try:
             await api.configure_event_service(local_ip, api.local_port)
         except Exception:
-            _LOGGER.debug("Failed to refresh OpenDev event service (cfg:notify)")
+            _LOGGER.debug("Failed to refresh OpenDev event service")
 
     unsub_notify = async_track_time_interval(hass, _refresh_notify, timedelta(seconds=90))
     domain_data["entries"][entry.entry_id]["unsub_notify"] = unsub_notify
@@ -87,10 +103,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
     async def _handle_send_keys(call: ServiceCall) -> None:
         remote_id = call.data["remote_id"]
         keys = call.data["keys"]
-        if isinstance(keys, str):
-            keys_to_send = [keys]
-        else:
-            keys_to_send = list(keys)
+        keys_to_send = [keys] if isinstance(keys, str) else list(keys)
 
         for entry_data in hass.data.get(DOMAIN, {}).get("entries", {}).values():
             api = entry_data.get("api")
@@ -102,14 +115,11 @@ def _async_register_services(hass: HomeAssistant) -> None:
         DOMAIN,
         "send_keys",
         _handle_send_keys,
-        schema=vol.Schema(
-            {
-                vol.Required("remote_id"): str,
-                vol.Required("keys"): vol.Any(str, [str]),
-            }
-        ),
+        schema=vol.Schema({
+            vol.Required("remote_id"): str,
+            vol.Required("keys"): vol.Any(str, [str]),
+        }),
     )
-
     domain_data["_services_registered"] = True
 
 def generate_entity_id(device_type, hub_id, device_id, idx=None):
