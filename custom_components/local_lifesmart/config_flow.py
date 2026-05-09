@@ -1,12 +1,12 @@
 """Config flow for LifeSmart Local integration."""
 import voluptuous as vol
 import logging
+import ipaddress
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_TOKEN
 from homeassistant.core import callback
 from .const import DOMAIN, DEFAULT_MODEL
 from .api import LifeSmartAPI
-import ipaddress
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -109,15 +109,17 @@ class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     host=user_input[CONF_HOST],
                     model=user_input["model"],
                     token=user_input[CONF_TOKEN],
-                    timeout=30,
+                    timeout=10,
                     local_port=0
                 )
                 
-                # Test the connection
+                # Test the connection (加上顯式的 async_start)
                 try:
+                    await api.async_start()
                     devices = await api.discover_devices()
                 finally:
                     await api.async_stop()
+
                 if devices:
                     user_input["local_port"] = api.local_port
                     return self.async_create_entry(
@@ -127,15 +129,70 @@ class LifeSmartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else:
                     errors["base"] = "no_devices"
                     
-            except vol.Invalid as e:
+            except vol.Invalid:
                 if "base" not in errors:
                     errors["base"] = "invalid_config"
-            except Exception as e:
+            except Exception:
                 errors["base"] = "cannot_connect"
 
         return self.async_show_form(
             step_id="user",
             data_schema=DATA_SCHEMA,
+            errors=errors
+        )
+
+    async def async_step_reconfigure(self, user_input=None):
+        """Handle the reconfiguration step (解決 500 錯誤的關鍵)."""
+        errors = {}
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+
+        if user_input is not None:
+            try:
+                # 重用驗證邏輯
+                user_input[CONF_HOST] = validate_host(user_input[CONF_HOST])
+                user_input[CONF_TOKEN] = validate_token(user_input[CONF_TOKEN])
+
+                api = LifeSmartAPI(
+                    host=user_input[CONF_HOST],
+                    model=user_input.get("model", DEFAULT_MODEL),
+                    token=user_input[CONF_TOKEN],
+                    timeout=10,
+                    local_port=0
+                )
+                
+                # 測試新設定是否可連線
+                try:
+                    await api.async_start()
+                    devices = await api.discover_devices()
+                finally:
+                    await api.async_stop()
+
+                if devices:
+                    user_input["local_port"] = api.local_port
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data={**entry.data, **user_input},
+                    )
+                else:
+                    errors["base"] = "no_devices"
+
+            except vol.Invalid:
+                errors["base"] = "invalid_config"
+            except Exception:
+                errors["base"] = "cannot_connect"
+
+        # 預先填入舊有的設定值
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_HOST, default=entry.data.get(CONF_HOST)): str,
+                vol.Required("model", default=entry.data.get("model", DEFAULT_MODEL)): str,
+                vol.Required(CONF_TOKEN, default=entry.data.get(CONF_TOKEN)): str,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=schema,
             errors=errors
         )
 
