@@ -2,6 +2,7 @@
 import logging
 import re
 import socket
+import asyncio
 from datetime import timedelta
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
@@ -32,9 +33,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     
     try:
-        # 關鍵：開啟 UDP 監聽
         await api.async_start()
         discovery = await api.discover_devices()
+        
+        # 應對 LifeSmart 的時間戳挑戰 (Challenge-Response) 機制
+        if isinstance(discovery, dict) and discovery.get("code") == 101:
+            _LOGGER.info("Encountered LifeSmart timestamp challenge (101). Syncing time and retrying...")
+            await asyncio.sleep(1) # 給予底層 API 模組一點時間更新內部的 ts 偏移量
+            discovery = await api.discover_devices() # 帶著同步後的 tick 進行第二次請求
+            
         _LOGGER.debug(f"Raw discovery response: {discovery}")
     except Exception as err:
         _LOGGER.error(f"Failed to connect or discover devices: {err}")
@@ -43,18 +50,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     domain_data = hass.data.setdefault(DOMAIN, {"entries": {}, "_services_registered": False})
     
-    # 強大的雙棲解析器：解決實體 Unavailable 問題
     devices = []
-    if isinstance(discovery, dict) and "msg" in discovery:
-        msg_data = discovery["msg"]
-        if isinstance(msg_data, list):
-            devices = msg_data
-        elif isinstance(msg_data, dict):
-            # 相容部分網關韌體回傳的字典格式
-            devices = [dev for dev in msg_data.values() if isinstance(dev, dict)]
+    if isinstance(discovery, dict):
+        if discovery.get("code") == 0 and "msg" in discovery:
+            msg_data = discovery["msg"]
+            if isinstance(msg_data, list):
+                devices = msg_data
+            elif isinstance(msg_data, dict):
+                devices = [dev for dev in msg_data.values() if isinstance(dev, dict)]
             
     if not devices:
-        _LOGGER.warning(f"No devices found or unrecognized format. Raw data: {discovery}")
+        _LOGGER.warning(f"No devices found after challenge. Raw data: {discovery}")
     else:
         _LOGGER.info(f"Successfully loaded {len(devices)} devices from LifeSmart Hub.")
 
